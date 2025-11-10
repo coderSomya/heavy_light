@@ -9,7 +9,7 @@ repository = "https://github.com/coderSomya/halide"
 homepage = "https://github.com/coderSomya/halide"
 documentation = "https://docs.rs/halide"
 readme = "README.md"
-keywords = ["rust", "library", "tree", "queries", "heavy-light", "decomposition", "hld", "lca", "path-query"]
+keywords = ["rust", "library", "tree", "queries", "path-query"]
 categories = ["algorithms", "data-structures"]
 
 [dependencies]

@@ -1,20 +1,56 @@
 pub mod node;
 pub mod segment_tree;
 
-pub use segment_tree::{CombineFn, LazyApplyFn, LazyFunc};
-use segment_tree::SegmentTree;
+pub use segment_tree::CombineFn;
+pub use node::Node;
+use segment_tree::{SegmentTree, DefaultLazyApply, DefaultLazyFunc};
+
+/// A tree structure containing nodes
+pub struct Tree<T> {
+    nodes: Vec<Node<T>>,
+    edges: Vec<Vec<usize>>,
+}
+
+impl<T> Tree<T> {
+    fn new(n: usize, values: Vec<T>) -> Self {
+        let nodes = values
+            .into_iter()
+            .enumerate()
+            .map(|(id, value)| Node::new(id, value))
+            .collect();
+        
+        Self {
+            nodes,
+            edges: vec![Vec::new(); n],
+        }
+    }
+
+    fn add_edge(&mut self, u: usize, v: usize) {
+        self.edges[u].push(v);
+        self.edges[v].push(u);
+    }
+
+    fn get_node(&self, id: usize) -> Option<&Node<T>> {
+        self.nodes.get(id)
+    }
+
+    fn get_node_mut(&mut self, id: usize) -> Option<&mut Node<T>> {
+        self.nodes.get_mut(id)
+    }
+
+    fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+}
 
 /// Heavy-Light Decomposition structure for tree path queries and updates
-pub struct HeavyLightDecomposition<T, C, LA, LF>
+pub struct Halide<T, C>
 where
     T: Clone + Copy + Default + PartialEq,
     C: CombineFn<T>,
-    LA: LazyApplyFn<T>,
-    LF: LazyFunc<T>,
 {
-    n: usize,
+    tree: Tree<T>,
     lg: usize,
-    edges: Vec<Vec<usize>>,
     bigchild: Vec<Option<usize>>,
     sz: Vec<usize>,
     depth: Vec<usize>,
@@ -23,43 +59,35 @@ where
     label_time: usize,
     par: Vec<Option<usize>>,
     lca_lift: Vec<Vec<Option<usize>>>,
-    seg_tree: SegmentTree<T, C, LA, LF>,
+    seg_tree: SegmentTree<T, C, DefaultLazyApply, DefaultLazyFunc>,
     combine_fn: C,
     sentinel: T,
 }
 
-impl<T, C, LA, LF> HeavyLightDecomposition<T, C, LA, LF>
+impl<T, C> Halide<T, C>
 where
     T: Clone + Copy + Default + PartialEq,
     C: CombineFn<T> + Clone,
-    LA: LazyApplyFn<T> + Clone,
-    LF: LazyFunc<T> + Clone,
 {
-    /// Create a new HLD instance
+    /// Create a new Halide instance
     /// 
     /// # Arguments
-    /// * `n` - Number of nodes in the tree
+    /// * `values` - Initial values for each node (index corresponds to node id)
     /// * `lg` - Logarithm base 2 of maximum depth (for binary lifting)
     /// * `combine_fn` - Function to combine two segment tree values
-    /// * `lazy_apply_fn` - Function to apply lazy updates
-    /// * `lazy_func` - Function to apply lazy value to current value
-    /// * `sentinel` - Sentinel value for segment tree queries
-    /// * `lazy_sentinel` - Sentinel value for lazy propagation
-    pub fn new(
-        n: usize,
-        lg: usize,
-        combine_fn: C,
-        lazy_apply_fn: LA,
-        lazy_func: LF,
-        sentinel: T,
-        lazy_sentinel: Option<T>,
-    ) -> Self {
-        let seg_tree = SegmentTree::new(n, combine_fn.clone(), lazy_apply_fn.clone(), lazy_func.clone(), sentinel, lazy_sentinel);
+    /// * `sentinel` - Sentinel value for segment tree queries (identity element for combine)
+    pub fn new(values: Vec<T>, lg: usize, combine_fn: C, sentinel: T) -> Self {
+        let n = values.len();
+        let tree = Tree::new(n, values);
+        
+        let lazy_apply = DefaultLazyApply;
+        let lazy_func = DefaultLazyFunc;
+        let lazy_sentinel = None;
+        let seg_tree = SegmentTree::new(n, combine_fn.clone(), lazy_apply, lazy_func, sentinel, lazy_sentinel);
         
         Self {
-            n,
+            tree,
             lg,
-            edges: vec![Vec::new(); n],
             bigchild: vec![None; n],
             sz: vec![0; n],
             depth: vec![0; n],
@@ -74,26 +102,16 @@ where
         }
     }
 
-    /// Initialize arrays (call this before adding edges)
-    pub fn init_arrays(&mut self) {
-        for i in 0..self.n {
-            self.edges[i].clear();
-            self.chain[i] = i;
-        }
-    }
-
     /// Add an undirected edge between nodes u and v
     pub fn add_edge(&mut self, u: usize, v: usize) {
-        self.edges[u].push(v);
-        self.edges[v].push(u);
+        self.tree.add_edge(u, v);
     }
 
-    /// Initialize the tree structure with initial values
+    /// Initialize the tree structure (call after adding all edges)
     /// 
     /// # Arguments
-    /// * `arr` - Initial values for each node
     /// * `root` - Root node index (default: 0)
-    pub fn init_tree(&mut self, arr: &[T], root: usize) {
+    pub fn init(&mut self, root: usize) {
         // Build LCA structure
         self.lca_dfs(root, None);
 
@@ -105,7 +123,7 @@ where
 
         // Label nodes and initialize segment tree
         self.label_time = 0;
-        self.dfs_labels(arr, root, None);
+        self.dfs_labels(root, None);
     }
 
     fn lca_dfs(&mut self, v: usize, par: Option<usize>) {
@@ -119,7 +137,7 @@ where
             }
         }
 
-        let edges_v = self.edges[v].clone();
+        let edges_v = self.tree.edges[v].clone();
         for x in edges_v {
             if Some(x) != par {
                 self.lca_dfs(x, Some(v));
@@ -134,7 +152,7 @@ where
         let mut bigc = None;
         let mut bigv = 0;
 
-        let edges_v = self.edges[v].clone();
+        let edges_v = self.tree.edges[v].clone();
         for x in edges_v {
             if Some(x) != p {
                 self.dfs_size(x, Some(v), d + 1);
@@ -154,7 +172,7 @@ where
             self.chain[bc] = self.chain[v];
         }
 
-        let edges_v = self.edges[v].clone();
+        let edges_v = self.tree.edges[v].clone();
         for x in edges_v {
             if Some(x) != p {
                 self.dfs_chains(x, Some(v));
@@ -162,19 +180,22 @@ where
         }
     }
 
-    fn dfs_labels(&mut self, arr: &[T], v: usize, p: Option<usize>) {
+    fn dfs_labels(&mut self, v: usize, p: Option<usize>) {
         self.label[v] = self.label_time;
         self.label_time += 1;
-        self.seg_tree.point_update(self.label[v], arr[v]);
-
-        if let Some(bc) = self.bigchild[v] {
-            self.dfs_labels(arr, bc, Some(v));
+        
+        if let Some(node) = self.tree.get_node(v) {
+            self.seg_tree.point_update(self.label[v], *node.value());
         }
 
-        let edges_v = self.edges[v].clone();
+        if let Some(bc) = self.bigchild[v] {
+            self.dfs_labels(bc, Some(v));
+        }
+
+        let edges_v = self.tree.edges[v].clone();
         for x in edges_v {
             if Some(x) != p && Some(x) != self.bigchild[v] {
-                self.dfs_labels(arr, x, Some(v));
+                self.dfs_labels(x, Some(v));
             }
         }
     }
@@ -308,6 +329,16 @@ where
     pub fn get_parent(&self, node: usize) -> Option<usize> {
         self.par[node]
     }
+
+    /// Get a reference to a node
+    pub fn get_node(&self, id: usize) -> Option<&Node<T>> {
+        self.tree.get_node(id)
+    }
+
+    /// Get a mutable reference to a node
+    pub fn get_node_mut(&mut self, id: usize) -> Option<&mut Node<T>> {
+        self.tree.get_node_mut(id)
+    }
 }
 
 #[cfg(test)]
@@ -331,51 +362,28 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct SimpleLazyApply;
-    impl LazyApplyFn<u64> for SimpleLazyApply {
-        fn apply(&self, _lazy_val: u64, new_val: u64) -> u64 {
-            new_val
-        }
-    }
-
-    #[derive(Clone)]
-    struct SimpleLazyFunc;
-    impl LazyFunc<u64> for SimpleLazyFunc {
-        fn apply(&self, _cur_val: u64, lazy_val: u64, _l: usize, _r: usize) -> u64 {
-            lazy_val
-        }
-    }
-
     #[test]
-    fn test_basic_hld() {
-        let n = 5;
+    fn test_basic_halide() {
+        let values = vec![1u64, 2, 3, 4, 5];
         let lg = 3;
         let combine = XorCombine;
-        let lazy_apply = SimpleLazyApply;
-        let lazy_func = SimpleLazyFunc;
         
-        let mut hld = HeavyLightDecomposition::new(
-            n,
+        let mut halide = Halide::new(
+            values,
             lg,
             combine,
-            lazy_apply,
-            lazy_func,
-            0u64,
-            Some(0u64),
+            0u64, // sentinel
         );
 
-        hld.init_arrays();
-        hld.add_edge(0, 1);
-        hld.add_edge(0, 2);
-        hld.add_edge(1, 3);
-        hld.add_edge(1, 4);
+        halide.add_edge(0, 1);
+        halide.add_edge(0, 2);
+        halide.add_edge(1, 3);
+        halide.add_edge(1, 4);
 
-        let arr = vec![1u64, 2, 3, 4, 5];
-        hld.init_tree(&arr, 0);
+        halide.init(0); // root is node 0
 
         // Test LCA
-        let lca = hld.lca(3, 4);
+        let lca = halide.lca(3, 4);
         assert_eq!(lca, 1);
     }
 }

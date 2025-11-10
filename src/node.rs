@@ -1,25 +1,24 @@
-/// A node in the tree, identified by its index
+/// A node in the tree, generic over the value type it holds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Node(pub usize);
-
-impl Node {
-    pub fn new(id: usize) -> Self {
-        Node(id)
-    }
-
-    pub fn index(&self) -> usize {
-        self.0
-    }
+pub struct Node<T> {
+    pub id: usize,
+    pub value: T,
 }
 
-impl From<usize> for Node {
-    fn from(id: usize) -> Self {
-        Node(id)
+impl<T> Node<T> {
+    pub fn new(id: usize, value: T) -> Self {
+        Node { id, value }
     }
-}
 
-impl From<Node> for usize {
-    fn from(node: Node) -> Self {
-        node.0
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+
+    pub fn set_value(&mut self, value: T) {
+        self.value = value;
     }
 }

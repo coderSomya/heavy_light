@@ -1,5 +1,5 @@
 [package]
-name = "heavy_light"
+name = "halide"
 version = "0.1.0"
 edition = "2021"
 

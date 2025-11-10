@@ -13,6 +13,26 @@ pub trait LazyFunc<T> {
     fn apply(&self, cur_val: T, lazy_val: T, l: usize, r: usize) -> T;
 }
 
+/// Default lazy apply function - simply replaces with new value
+#[derive(Clone, Copy, Default)]
+pub struct DefaultLazyApply;
+
+impl<T> LazyApplyFn<T> for DefaultLazyApply {
+    fn apply(&self, _lazy_val: T, new_val: T) -> T {
+        new_val
+    }
+}
+
+/// Default lazy function - replaces current value with lazy value
+#[derive(Clone, Copy, Default)]
+pub struct DefaultLazyFunc;
+
+impl<T> LazyFunc<T> for DefaultLazyFunc {
+    fn apply(&self, _cur_val: T, lazy_val: T, _l: usize, _r: usize) -> T {
+        lazy_val
+    }
+}
+
 /// Generic segment tree with lazy propagation
 pub struct SegmentTree<T, C, LA, LF> 
 where

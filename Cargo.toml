@@ -2,5 +2,14 @@
 name = "halide"
 version = "0.1.0"
 edition = "2021"
+authors = ["somyajeet"]
+description = "A generic Rust crate for heavy-light decomposition (HLD) that enables efficient path queries and updates on trees. Supports customizable combine functions, lazy propagation, and all standard HLD operations including LCA queries, path queries, and path updates with O(log² n) complexity."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/coderSomya/halide"
+homepage = "https://github.com/coderSomya/halide"
+documentation = "https://docs.rs/halide"
+readme = "README.md"
+keywords = ["rust", "library", "tree", "queries", "heavy-light", "decomposition", "hld", "lca", "path-query"]
+categories = ["algorithms", "data-structures"]
 
 [dependencies]

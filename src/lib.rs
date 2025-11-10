@@ -1,47 +1,11 @@
 pub mod node;
 pub mod segment_tree;
+pub mod tree;
 
 pub use segment_tree::CombineFn;
 pub use node::Node;
 use segment_tree::{SegmentTree, DefaultLazyApply, DefaultLazyFunc};
-
-/// A tree structure containing nodes
-pub struct Tree<T> {
-    nodes: Vec<Node<T>>,
-    edges: Vec<Vec<usize>>,
-}
-
-impl<T> Tree<T> {
-    fn new(n: usize, values: Vec<T>) -> Self {
-        let nodes = values
-            .into_iter()
-            .enumerate()
-            .map(|(id, value)| Node::new(id, value))
-            .collect();
-        
-        Self {
-            nodes,
-            edges: vec![Vec::new(); n],
-        }
-    }
-
-    fn add_edge(&mut self, u: usize, v: usize) {
-        self.edges[u].push(v);
-        self.edges[v].push(u);
-    }
-
-    fn get_node(&self, id: usize) -> Option<&Node<T>> {
-        self.nodes.get(id)
-    }
-
-    fn get_node_mut(&mut self, id: usize) -> Option<&mut Node<T>> {
-        self.nodes.get_mut(id)
-    }
-
-    fn node_count(&self) -> usize {
-        self.nodes.len()
-    }
-}
+use tree::Tree;
 
 /// Heavy-Light Decomposition structure for tree path queries and updates
 pub struct Halide<T, C>
@@ -137,7 +101,7 @@ where
             }
         }
 
-        let edges_v = self.tree.edges[v].clone();
+        let edges_v = self.tree.get_edges(v).clone();
         for x in edges_v {
             if Some(x) != par {
                 self.lca_dfs(x, Some(v));
@@ -152,7 +116,7 @@ where
         let mut bigc = None;
         let mut bigv = 0;
 
-        let edges_v = self.tree.edges[v].clone();
+        let edges_v = self.tree.get_edges(v).clone();
         for x in edges_v {
             if Some(x) != p {
                 self.dfs_size(x, Some(v), d + 1);
@@ -172,7 +136,7 @@ where
             self.chain[bc] = self.chain[v];
         }
 
-        let edges_v = self.tree.edges[v].clone();
+        let edges_v = self.tree.get_edges(v).clone();
         for x in edges_v {
             if Some(x) != p {
                 self.dfs_chains(x, Some(v));
@@ -192,7 +156,7 @@ where
             self.dfs_labels(bc, Some(v));
         }
 
-        let edges_v = self.tree.edges[v].clone();
+        let edges_v = self.tree.get_edges(v).clone();
         for x in edges_v {
             if Some(x) != p && Some(x) != self.bigchild[v] {
                 self.dfs_labels(x, Some(v));

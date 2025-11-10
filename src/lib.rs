@@ -4,8 +4,8 @@ pub mod tree;
 
 pub use segment_tree::CombineFn;
 pub use node::Node;
+pub use tree::Tree;
 use segment_tree::{SegmentTree, DefaultLazyApply, DefaultLazyFunc};
-use tree::Tree;
 
 /// Heavy-Light Decomposition structure for tree path queries and updates
 pub struct Halide<T, C>
@@ -14,15 +14,11 @@ where
     C: CombineFn<T>,
 {
     tree: Tree<T>,
-    lg: usize,
     bigchild: Vec<Option<usize>>,
     sz: Vec<usize>,
-    depth: Vec<usize>,
     chain: Vec<usize>,
     label: Vec<usize>,
     label_time: usize,
-    par: Vec<Option<usize>>,
-    lca_lift: Vec<Vec<Option<usize>>>,
     seg_tree: SegmentTree<T, C, DefaultLazyApply, DefaultLazyFunc>,
     combine_fn: C,
     sentinel: T,
@@ -42,7 +38,7 @@ where
     /// * `sentinel` - Sentinel value for segment tree queries (identity element for combine)
     pub fn new(values: Vec<T>, lg: usize, combine_fn: C, sentinel: T) -> Self {
         let n = values.len();
-        let tree = Tree::new(n, values);
+        let tree = Tree::new(n, values, lg);
         
         let lazy_apply = DefaultLazyApply;
         let lazy_func = DefaultLazyFunc;
@@ -51,15 +47,11 @@ where
         
         Self {
             tree,
-            lg,
             bigchild: vec![None; n],
             sz: vec![0; n],
-            depth: vec![0; n],
             chain: (0..n).collect(),
             label: vec![0; n],
             label_time: 0,
-            par: vec![None; n],
-            lca_lift: vec![vec![None; lg]; n],
             seg_tree,
             combine_fn,
             sentinel,
@@ -76,11 +68,11 @@ where
     /// # Arguments
     /// * `root` - Root node index (default: 0)
     pub fn init(&mut self, root: usize) {
-        // Build LCA structure
-        self.lca_dfs(root, None);
+        // Initialize tree (builds LCA structure, depth, parent)
+        self.tree.init(root);
 
         // Compute subtree sizes and identify heavy children
-        self.dfs_size(root, None, 0);
+        self.dfs_size(root, None);
 
         // Compute chains
         self.dfs_chains(root, None);
@@ -90,36 +82,15 @@ where
         self.dfs_labels(root, None);
     }
 
-    fn lca_dfs(&mut self, v: usize, par: Option<usize>) {
-        self.lca_lift[v][0] = par;
-
-        for i in 1..self.lg {
-            if let Some(prev) = self.lca_lift[v][i - 1] {
-                self.lca_lift[v][i] = self.lca_lift[prev][i - 1];
-            } else {
-                self.lca_lift[v][i] = None;
-            }
-        }
-
-        let edges_v = self.tree.get_edges(v).clone();
-        for x in edges_v {
-            if Some(x) != par {
-                self.lca_dfs(x, Some(v));
-            }
-        }
-    }
-
-    fn dfs_size(&mut self, v: usize, p: Option<usize>, d: usize) {
+    fn dfs_size(&mut self, v: usize, p: Option<usize>) {
         self.sz[v] = 1;
-        self.depth[v] = d;
-        self.par[v] = p;
         let mut bigc = None;
         let mut bigv = 0;
 
         let edges_v = self.tree.get_edges(v).clone();
         for x in edges_v {
             if Some(x) != p {
-                self.dfs_size(x, Some(v), d + 1);
+                self.dfs_size(x, Some(v));
                 self.sz[v] += self.sz[x];
                 if self.sz[x] > bigv {
                     bigc = Some(x);
@@ -164,61 +135,18 @@ where
         }
     }
 
-    /// Find the lowest common ancestor of two nodes
-    pub fn lca(&self, mut a: usize, mut b: usize) -> usize {
-        if self.depth[a] < self.depth[b] {
-            std::mem::swap(&mut a, &mut b);
-        }
-
-        let d = self.depth[a] - self.depth[b];
-        let mut v = self.get_kth_ancestor(a, d);
-        
-        if v == b {
-            return v;
-        }
-
-        for i in (0..self.lg).rev() {
-            if self.lca_lift[v][i] != self.lca_lift[b][i] {
-                if let Some(v_lift) = self.lca_lift[v][i] {
-                    v = v_lift;
-                }
-                if let Some(b_lift) = self.lca_lift[b][i] {
-                    b = b_lift;
-                }
-            }
-        }
-
-        self.lca_lift[b][0].unwrap_or(b)
-    }
-
-    /// Get the k-th ancestor of node v
-    pub fn get_kth_ancestor(&self, mut v: usize, mut k: usize) -> usize {
-        for i in (0..self.lg).rev() {
-            if v == usize::MAX {
-                return v;
-            }
-            if (1 << i) <= k {
-                if let Some(lift) = self.lca_lift[v][i] {
-                    v = lift;
-                    k -= 1 << i;
-                } else {
-                    return usize::MAX;
-                }
-            }
-        }
-        v
-    }
-
     /// Query a chain from v to p (excludes p)
     fn query_chain(&mut self, mut v: usize, p: usize) -> T {
         let mut val = self.sentinel;
+        let depth = self.tree.depth();
+        let par = self.tree.par();
         
-        while self.depth[p] < self.depth[v] {
+        while depth[p] < depth[v] {
             let mut top = self.chain[v];
-            if self.depth[top] <= self.depth[p] {
-                let diff = self.depth[v] - self.depth[p];
+            if depth[top] <= depth[p] {
+                let diff = depth[v] - depth[p];
                 if diff > 0 {
-                    top = self.get_kth_ancestor(v, diff - 1);
+                    top = self.tree.get_kth_ancestor(v, diff - 1);
                     if top == usize::MAX {
                         break;
                     }
@@ -227,7 +155,7 @@ where
                 }
             }
             val = self.combine_fn.combine(val, self.seg_tree.query(self.label[top], self.label[v]));
-            if let Some(parent) = self.par[top] {
+            if let Some(parent) = par[top] {
                 v = parent;
             } else {
                 break;
@@ -239,7 +167,7 @@ where
 
     /// Query the path between nodes u and v
     pub fn query(&mut self, u: usize, v: usize) -> T {
-        let lc = self.lca(u, v);
+        let lc = self.tree.lca(u, v);
         let val1 = self.query_chain(u, lc);
         let val2 = self.query_chain(v, lc);
         let combined = self.combine_fn.combine(val1, val2);
@@ -249,12 +177,15 @@ where
 
     /// Update a chain from v to p (excludes p)
     fn update_chain(&mut self, mut v: usize, p: usize, val: T) {
-        while self.depth[p] < self.depth[v] {
+        let depth = self.tree.depth();
+        let par = self.tree.par();
+        
+        while depth[p] < depth[v] {
             let mut top = self.chain[v];
-            if self.depth[top] <= self.depth[p] {
-                let diff = self.depth[v] - self.depth[p];
+            if depth[top] <= depth[p] {
+                let diff = depth[v] - depth[p];
                 if diff > 0 {
-                    top = self.get_kth_ancestor(v, diff - 1);
+                    top = self.tree.get_kth_ancestor(v, diff - 1);
                     if top == usize::MAX {
                         break;
                     }
@@ -263,7 +194,7 @@ where
                 }
             }
             self.seg_tree.update(self.label[top], self.label[v], val);
-            if let Some(parent) = self.par[top] {
+            if let Some(parent) = par[top] {
                 v = parent;
             } else {
                 break;
@@ -273,7 +204,7 @@ where
 
     /// Update the path between nodes u and v
     pub fn update(&mut self, u: usize, v: usize, val: T) {
-        let lc = self.lca(u, v);
+        let lc = self.tree.lca(u, v);
         self.update_chain(u, lc, val);
         self.update_chain(v, lc, val);
         self.seg_tree.update(self.label[lc], self.label[lc], val);
@@ -284,16 +215,6 @@ where
         self.label[node]
     }
 
-    /// Get the depth of a node
-    pub fn get_depth(&self, node: usize) -> usize {
-        self.depth[node]
-    }
-
-    /// Get the parent of a node
-    pub fn get_parent(&self, node: usize) -> Option<usize> {
-        self.par[node]
-    }
-
     /// Get a reference to a node
     pub fn get_node(&self, id: usize) -> Option<&Node<T>> {
         self.tree.get_node(id)
@@ -302,6 +223,11 @@ where
     /// Get a mutable reference to a node
     pub fn get_node_mut(&mut self, id: usize) -> Option<&mut Node<T>> {
         self.tree.get_node_mut(id)
+    }
+
+    /// Get a reference to the underlying tree
+    pub fn tree(&self) -> &Tree<T> {
+        &self.tree
     }
 }
 
@@ -347,7 +273,7 @@ mod tests {
         halide.init(0); // root is node 0
 
         // Test LCA
-        let lca = halide.lca(3, 4);
+        let lca = halide.tree().lca(3, 4);
         assert_eq!(lca, 1);
     }
 }
